@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator, ScrollView, Pressable, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator, ScrollView, Pressable, Modal, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useUser } from '@/contexts/UserContext';
@@ -144,22 +144,28 @@ export default function AddProfileScreen() {
   const requestPermissions = useCallback(async (type: 'camera' | 'library') => {
     if (Platform.OS !== 'web') {
       if (type === 'camera') {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
           Alert.alert(
             'Camera Permission Required',
             'Please allow camera access to take photos.',
-            [{ text: 'OK' }]
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
           );
           return false;
         }
       } else {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
           Alert.alert(
             'Photo Library Permission Required',
             'Please allow photo library access to select images.',
-            [{ text: 'OK' }]
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
           );
           return false;
         }
