@@ -1,10 +1,10 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator, ScrollView, Pressable, Modal } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useUser } from '@/contexts/UserContext';
 import Colors from '@/constants/colors';
-import { Camera, ImageIcon, UploadCloud, CheckCircle2, AlertCircle, ChevronLeft } from 'lucide-react-native';
+import { Camera, ImageIcon, UploadCloud, CheckCircle2, AlertCircle, ChevronLeft, X } from 'lucide-react-native';
 import { router, Stack } from 'expo-router';
 import FormInput from '@/components/FormInput';
 import { uploadImageToCloudinary } from '@/lib/cloudinary';
@@ -72,6 +72,7 @@ export default function AddProfileScreen() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [state, setState] = useState<UploadState>({ step: 'idle' });
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [showImagePicker, setShowImagePicker] = useState<boolean>(false);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -139,28 +140,55 @@ export default function AddProfileScreen() {
     if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }));
   }, [errors]);
 
-  const requestPermissions = useCallback(async () => {
+  const requestPermissions = useCallback(async (type: 'camera' | 'library') => {
     if (Platform.OS !== 'web') {
-      const cam = await ImagePicker.requestCameraPermissionsAsync();
-      const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (cam.status !== 'granted' || lib.status !== 'granted') {
-        Alert.alert('Permissions needed', 'Please allow camera and photos access.');
-        return false;
+      if (type === 'camera') {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            'Camera Permission Required',
+            'Please allow camera access to take photos.',
+            [{ text: 'OK' }]
+          );
+          return false;
+        }
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            'Photo Library Permission Required',
+            'Please allow photo library access to select images.',
+            [{ text: 'OK' }]
+          );
+          return false;
+        }
       }
     }
     return true;
   }, []);
 
   const handlePick = useCallback(async (source: 'camera' | 'library') => {
-    const ok = await requestPermissions();
+    setShowImagePicker(false);
+    const ok = await requestPermissions(source);
     if (!ok) return;
     try {
       setState({ step: 'picking', message: 'Opening...' });
       const picker = source === 'camera' ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-      const result = await picker({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ImagePicker.MediaTypeOptions.Images });
-      if (result.canceled) { setState({ step: 'idle' }); return; }
+      const result = await picker({ 
+        allowsEditing: true, 
+        aspect: [1, 1], 
+        quality: 0.85, 
+        mediaTypes: ImagePicker.MediaTypeOptions.Images 
+      });
+      if (result.canceled) { 
+        setState({ step: 'idle' }); 
+        return; 
+      }
       const asset = result.assets?.[0];
-      if (!asset?.uri) { setState({ step: 'error', message: 'No image selected' }); return; }
+      if (!asset?.uri) { 
+        setState({ step: 'error', message: 'No image selected' }); 
+        return; 
+      }
       setPhotoPreview(asset.uri);
       setErrors((e) => ({ ...e, photo: undefined }));
       setState({ step: 'uploading', message: 'Uploading photo...' });
@@ -272,7 +300,7 @@ export default function AddProfileScreen() {
             if (Platform.OS === 'web') {
               fileRef.current?.click();
             } else {
-              void handlePick('library');
+              setShowImagePicker(true);
             }
           }}
         >
@@ -283,14 +311,7 @@ export default function AddProfileScreen() {
               <ImageIcon size={48} color={Colors.light.tabIconDefault} />
               <Text style={styles.placeholderText}>Tap to add a photo</Text>
               <View style={styles.photoActionsRow}>
-                <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('camera')} disabled={disabled} testID="pick-camera">
-                  <Camera color="#fff" size={18} />
-                  <Text style={styles.buttonText}>Camera</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('library')} disabled={disabled} testID="pick-library">
-                  <ImageIcon color="#fff" size={18} />
-                  <Text style={styles.buttonText}>Library</Text>
-                </TouchableOpacity>
+                <Text style={styles.orText}>or</Text>
               </View>
             </View>
           )}
@@ -411,6 +432,52 @@ export default function AddProfileScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Image Picker Modal for Mobile */}
+      <Modal
+        visible={showImagePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowImagePicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Photo</Text>
+              <TouchableOpacity 
+                onPress={() => setShowImagePicker(false)}
+                style={styles.closeButton}
+              >
+                <X size={24} color={Colors.light.text} />
+              </TouchableOpacity>
+            </View>
+            
+            <Text style={styles.modalSubtitle}>Choose how you&apos;d like to add your photo</Text>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cameraButton]} 
+                onPress={() => handlePick('camera')}
+                disabled={disabled}
+              >
+                <Camera color="#fff" size={24} />
+                <Text style={styles.modalButtonText}>Take Photo</Text>
+                <Text style={styles.modalButtonSubtext}>Use camera to take a new photo</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.libraryButton]} 
+                onPress={() => handlePick('library')}
+                disabled={disabled}
+              >
+                <ImageIcon color="#fff" size={24} />
+                <Text style={styles.modalButtonText}>Choose from Library</Text>
+                <Text style={styles.modalButtonSubtext}>Select from your photo library</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ErrorBoundaryContainer>
   );
 }
@@ -458,4 +525,66 @@ const styles = StyleSheet.create({
     color: '#92400e', 
     lineHeight: 18 
   },
+  orText: {
+    fontSize: 12,
+    color: Colors.light.tabIconDefault,
+    fontWeight: '500'
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end'
+  },
+  modalContent: {
+    backgroundColor: Colors.light.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 40,
+    paddingHorizontal: 20
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.light.text
+  },
+  closeButton: {
+    padding: 4
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: Colors.light.tabIconDefault,
+    marginBottom: 24
+  },
+  modalActions: {
+    gap: 12
+  },
+  modalButton: {
+    padding: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    gap: 8
+  },
+  cameraButton: {
+    backgroundColor: Colors.light.tint
+  },
+  libraryButton: {
+    backgroundColor: '#0f172a'
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  modalButtonSubtext: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 13,
+    textAlign: 'center'
+  }
 });
