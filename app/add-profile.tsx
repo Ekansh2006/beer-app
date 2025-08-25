@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator, ScrollView, Pressable } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useUser } from '@/contexts/UserContext';
@@ -69,8 +69,9 @@ export default function AddProfileScreen() {
   const [form, setForm] = useState<FormState>({ name: '', age: '', city: '', description: '' });
   const [errors, setErrors] = useState<FormErrors>({});
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [state, setState] = useState<UploadState>({ step: 'idle' });
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -125,13 +126,13 @@ export default function AddProfileScreen() {
     }
     
     // Photo validation
-    if (!imageBase64) {
+    if (!photoUrl) {
       next.photo = 'Profile photo is required';
     }
     
     setErrors(next);
     return Object.keys(next).length === 0;
-  }, [form, imageBase64]);
+  }, [form, photoUrl]);
 
   const onChange = useCallback((key: keyof FormState, value: string) => {
     setForm((p) => ({ ...p, [key]: value }));
@@ -156,48 +157,20 @@ export default function AddProfileScreen() {
     try {
       setState({ step: 'picking', message: 'Opening...' });
       const picker = source === 'camera' ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-      const result = await picker({ allowsEditing: true, aspect: [1, 1], quality: 0.85, base64: true, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      const result = await picker({ allowsEditing: true, aspect: [1, 1], quality: 0.85, mediaTypes: ImagePicker.MediaTypeOptions.Images });
       if (result.canceled) { setState({ step: 'idle' }); return; }
       const asset = result.assets?.[0];
-      if (!asset) { setState({ step: 'error', message: 'No image selected' }); return; }
-      setPhotoPreview(asset.uri ?? null);
-      const b64 = asset.base64 ?? null;
-      if (!b64) { setState({ step: 'error', message: 'Failed to read image data' }); return; }
-      setState({ step: 'validating', message: 'Validating photo...' });
-      
-      // Calculate actual file size
-      const approxBytes = Math.ceil((b64.length * 3) / 4);
-      if (approxBytes > MAX_SIZE_BYTES) {
-        setState({ step: 'error', message: 'Image too large. Maximum size is 1MB.' });
-        return;
-      }
-      
-      // Check minimum size
-      if (approxBytes < 1000) {
-        setState({ step: 'error', message: 'Image too small. Please upload a valid photo.' });
-        return;
-      }
-      
-      // Basic format validation
-      try {
-        const buffer = Buffer.from(b64, 'base64');
-        const jpegHeader = buffer.subarray(0, 3);
-        const pngHeader = buffer.subarray(0, 8);
-        
-        const isJPEG = jpegHeader[0] === 0xFF && jpegHeader[1] === 0xD8 && jpegHeader[2] === 0xFF;
-        const isPNG = pngHeader[0] === 0x89 && pngHeader[1] === 0x50 && pngHeader[2] === 0x4E && pngHeader[3] === 0x47;
-        
-        if (!isJPEG && !isPNG) {
-          setState({ step: 'error', message: 'Invalid image format. Only JPEG and PNG are supported.' });
-          return;
-        }
-      } catch {
-        setState({ step: 'error', message: 'Invalid image data. Please try another photo.' });
-        return;
-      }
-      setImageBase64(b64);
+      if (!asset?.uri) { setState({ step: 'error', message: 'No image selected' }); return; }
+      setPhotoPreview(asset.uri);
       setErrors((e) => ({ ...e, photo: undefined }));
-      setState({ step: 'idle' });
+      setState({ step: 'uploading', message: 'Uploading photo...' });
+      try {
+        const url = await uploadImageToCloudinary(asset.uri);
+        setPhotoUrl(url);
+        setState({ step: 'idle', message: 'Photo uploaded' });
+      } catch (err: any) {
+        setState({ step: 'error', message: err?.message ?? 'Image upload failed' });
+      }
     } catch (e: any) {
       setState({ step: 'error', message: e?.message ?? 'Image picker failed' });
     }
@@ -223,8 +196,8 @@ export default function AddProfileScreen() {
     // Validate form
     if (!validate()) return;
     
-    // Double-check image
-    if (!imageBase64) { 
+    // Double-check photo URL
+    if (!photoUrl) { 
       setErrors((e) => ({ ...e, photo: 'Profile photo is required' })); 
       return; 
     }
@@ -236,21 +209,19 @@ export default function AddProfileScreen() {
       age: Number(form.age.trim()),
       city: form.city.trim().replace(/\s+/g, ' '),
       description: form.description?.trim().replace(/\s+/g, ' ') || '',
-      imageBase64,
+      profileImageUrl: photoUrl,
     };
     
     (async () => {
       try {
         setIsSubmitting(true);
         setState({ step: 'uploading', message: 'Creating profile...' });
-        const dataUrl = `data:image/jpeg;base64,${sanitizedData.imageBase64}`;
-        const imageUrl = await uploadImageToCloudinary(dataUrl);
         await addDoc(collection(db, 'profiles'), {
           name: sanitizedData.name,
           age: sanitizedData.age,
           city: sanitizedData.city,
           description: sanitizedData.description,
-          profileImageUrl: imageUrl,
+          profileImageUrl: sanitizedData.profileImageUrl,
           uploaderUserId: sanitizedData.userId,
           uploaderUsername: user.username ?? '',
           greenFlags: 0,
@@ -269,7 +240,7 @@ export default function AddProfileScreen() {
         setIsSubmitting(false);
       }
     })();
-  }, [user, validate, imageBase64, form]);
+  }, [user, validate, photoUrl, form]);
 
   const disabled = useMemo(() => state.step === 'picking' || isSubmitting, [state.step, isSubmitting]);
 
@@ -294,13 +265,23 @@ export default function AddProfileScreen() {
           </View>
         )}
 
-        <View style={styles.photoBox} testID="photo-box">
+        <Pressable
+          style={styles.photoBox}
+          testID="photo-box"
+          onPress={() => {
+            if (Platform.OS === 'web') {
+              fileRef.current?.click();
+            } else {
+              void handlePick('library');
+            }
+          }}
+        >
           {photoPreview ? (
             <Image source={{ uri: photoPreview }} style={styles.photo} contentFit="cover" />
           ) : (
             <View style={styles.photoPlaceholder}>
               <ImageIcon size={48} color={Colors.light.tabIconDefault} />
-              <Text style={styles.placeholderText}>No photo selected</Text>
+              <Text style={styles.placeholderText}>Tap to add a photo</Text>
               <View style={styles.photoActionsRow}>
                 <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('camera')} disabled={disabled} testID="pick-camera">
                   <Camera color="#fff" size={18} />
@@ -313,7 +294,35 @@ export default function AddProfileScreen() {
               </View>
             </View>
           )}
-        </View>
+        </Pressable>
+        {Platform.OS === 'web' ? (
+          // eslint-disable-next-line react/no-unknown-property
+          React.createElement('input', {
+            ref: fileRef as unknown as React.RefObject<HTMLInputElement>,
+            type: 'file',
+            accept: 'image/*',
+            style: { display: 'none' },
+            onChange: async (e: any) => {
+              try {
+                const fileList: FileList | null = e?.target?.files ?? null;
+                const f: File | undefined = fileList && fileList.length > 0 ? fileList[0] : undefined;
+                if (!f) return;
+                setPhotoPreview(URL.createObjectURL(f));
+                setState({ step: 'uploading', message: 'Uploading photo...' });
+                const url = await uploadImageToCloudinary(f);
+                setPhotoUrl(url);
+                setErrors((prev) => ({ ...prev, photo: undefined }));
+                setState({ step: 'idle', message: 'Photo uploaded' });
+              } catch (err: any) {
+                setState({ step: 'error', message: err?.message ?? 'Failed to upload image' });
+              } finally {
+                if (e?.target) {
+                  e.target.value = '';
+                }
+              }
+            }
+          } as any)
+        ) : null}
         {errors.photo ? <Text style={styles.errorText}>{errors.photo}</Text> : null}
 
         <View style={styles.form}>
