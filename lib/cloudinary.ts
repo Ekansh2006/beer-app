@@ -1,6 +1,6 @@
 export const CLOUDINARY_CONFIG = {
   cloudName: 'df4tx4erp',
-  uploadPreset: 'beer-app-photos',
+  uploadPreset: 'beer_app_unsigned', // Use your new unsigned preset name
   apiKey: '736319717389867'
 };
 
@@ -48,13 +48,25 @@ export function transformCloudinaryUrl(url: string, opts: CloudinaryTransformOpt
   }
 }
 
+// Updated function that works on both web and native
 export const uploadImageToCloudinary = async (imageUri: string) => {
   const formData = new FormData();
-  formData.append('file', {
-    uri: imageUri,
-    type: 'image/jpeg',
-    name: 'photo.jpg'
-  } as any);
+  
+  // Handle both data URLs (web) and file URIs (native)
+  if (imageUri.startsWith('data:')) {
+    // Web: Convert data URL to blob
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    formData.append('file', blob, 'photo.jpg');
+  } else {
+    // Native: Use the existing format
+    formData.append('file', {
+      uri: imageUri,
+      type: 'image/jpeg',
+      name: 'photo.jpg'
+    } as any);
+  }
+  
   formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
 
   try {
