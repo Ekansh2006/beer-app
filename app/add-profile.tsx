@@ -503,11 +503,37 @@ export default function AddProfileScreen() {
             <Text style={styles.permissionMessage}>
               This app would like to access your photos to let you select a profile picture.
             </Text>
+
+            <TouchableOpacity
+              onPress={() => {
+                try {
+                  const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '') || '';
+                  let url = 'about:blank';
+                  if (ua.includes('Edg')) {
+                    url = 'edge://settings/content';
+                  } else if (ua.includes('Chrome')) {
+                    url = 'chrome://settings/content';
+                  } else if (ua.includes('Firefox')) {
+                    url = 'about:preferences#privacy';
+                  } else if (ua.includes('Safari')) {
+                    url = 'https://support.apple.com/guide/safari/manage-website-settings-ibrw7c9f72ad/mac';
+                  } else {
+                    url = 'https://support.google.com/chrome/answer/114662?hl=en';
+                  }
+                  Linking.openURL(url);
+                } catch (e) {}
+              }}
+              style={{ marginBottom: 8 }}
+              testID="web-open-settings"
+            >
+              <Text style={{ color: Colors.light.tint, fontSize: 13 }}>Open browser permissions</Text>
+            </TouchableOpacity>
             
             <View style={styles.permissionActions}>
               <TouchableOpacity 
                 style={[styles.permissionButton, styles.denyButton]}
                 onPress={() => setShowWebPermission(false)}
+                testID="web-permission-deny"
               >
                 <Text style={styles.denyButtonText}>Don&apos;t Allow</Text>
               </TouchableOpacity>
@@ -521,6 +547,7 @@ export default function AddProfileScreen() {
                     fileRef.current?.click();
                   }, 100);
                 }}
+                testID="web-permission-allow"
               >
                 <Text style={styles.allowButtonText}>Allow</Text>
               </TouchableOpacity>
@@ -647,7 +674,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 12,
-    elevation: 8
+    elevation: 8,
+    maxWidth: 480,
+    alignSelf: 'center'
   },
   permissionIcon: {
     width: 64,
