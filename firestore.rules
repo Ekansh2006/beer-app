@@ -1,0 +1,133 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             request.auth.token.email == 'admin@gmail.com' &&
+             exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isApprovedUser() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status in ['approved', 'approved_username_assigned'];
+    }
+
+    // Admin collection - only admin can read/write
+    match /admins/{adminId} {
+      allow read, write: if isAdmin();
+    }
+
+    // Users collection
+    match /users/{userId} {
+      // Users can read their own data, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can create their own profile during registration
+      allow create: if isAuthenticated() && 
+                   request.auth.uid == userId &&
+                   request.resource.data.status == 'pending_verification';
+      
+      // Users can update their own profile (except status field)
+      allow update: if isOwner(userId) && 
+                   !('status' in request.resource.data.diff(resource.data).affectedKeys());
+      
+      // Only admins can update user status
+      allow update: if isAdmin() && 
+                   ('status' in request.resource.data.diff(resource.data).affectedKeys());
+      
+      // Only admins can delete users
+      allow delete: if isAdmin();
+    }
+
+    // Profiles collection
+    match /profiles/{profileId} {
+      // Anyone can read profiles
+      allow read: if true;
+      
+      // Only approved users can create profiles
+      allow create: if isApprovedUser() &&
+                   request.auth.uid == request.resource.data.userId;
+      
+      // Users can update their own profiles (full update, excluding vote fields)
+      allow update: if isApprovedUser() &&
+                   request.auth.uid == resource.data.userId &&
+                   !request.resource.data.diff(resource.data).affectedKeys().hasAny(['greenFlags', 'redFlags']);
+      
+      // Any authenticated user can vote (update greenFlags/redFlags only)
+      allow update: if isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['greenFlags', 'redFlags']);
+      
+      // Users can delete their own profiles, admins can delete any
+      allow delete: if (isApprovedUser() && request.auth.uid == resource.data.userId) ||
+                   isAdmin();
+      
+      // Subcollection: comments under each profile
+      match /comments/{commentId} {
+        // Anyone can read comments for visibility across users
+        allow read: if true;
+        // Only approved users can create comments
+        allow create: if isApprovedUser() && request.auth.uid == request.resource.data.userId;
+        // Owners can update/delete their comments; admins can manage
+        allow update, delete: if (isApprovedUser() && request.auth.uid == resource.data.userId) || isAdmin();
+      }
+    }
+
+    // Comments collection
+    match /comments/{commentId} {
+      // Anyone can read comments
+      allow read: if true;
+      
+      // Only approved users can create comments
+      allow create: if isApprovedUser() && 
+                   request.auth.uid == request.resource.data.userId;
+      
+      // Users can update their own comments
+      allow update: if isApprovedUser() && 
+                   request.auth.uid == resource.data.userId;
+      
+      // Users can delete their own comments, admins can delete any
+      allow delete: if (isApprovedUser() && request.auth.uid == resource.data.userId) || 
+                   isAdmin();
+    }
+
+    // Flags collection - for reporting content
+    match /flags/{flagId} {
+      // Only admins can read flags
+      allow read: if isAdmin();
+      
+      // Approved users can create flags (report content)
+      allow create: if isApprovedUser() && 
+                   request.auth.uid == request.resource.data.userId;
+      
+      // Only admins can update/delete flags
+      allow update, delete: if isAdmin();
+    }
+
+    // Admin actions collection - audit trail
+    match /admin_actions/{actionId} {
+      // Only admins can read admin actions
+      allow read: if isAdmin();
+      
+      // Only backend can create admin actions (via admin SDK)
+      allow create: if false;
+      
+      // No updates or deletes allowed
+      allow update, delete: if false;
+    }
+
+    // Deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
