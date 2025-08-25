@@ -73,6 +73,7 @@ export default function AddProfileScreen() {
   const [state, setState] = useState<UploadState>({ step: 'idle' });
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [showImagePicker, setShowImagePicker] = useState<boolean>(false);
+  const [showWebPermission, setShowWebPermission] = useState<boolean>(false);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -298,7 +299,7 @@ export default function AddProfileScreen() {
           testID="photo-box"
           onPress={() => {
             if (Platform.OS === 'web') {
-              fileRef.current?.click();
+              setShowWebPermission(true);
             } else {
               setShowImagePicker(true);
             }
@@ -478,6 +479,49 @@ export default function AddProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Web Permission Modal */}
+      <Modal
+        visible={showWebPermission}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowWebPermission(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.webPermissionModal}>
+            <View style={styles.permissionIcon}>
+              <ImageIcon size={32} color={Colors.light.tint} />
+            </View>
+            
+            <Text style={styles.permissionTitle}>Photo Library Access</Text>
+            <Text style={styles.permissionMessage}>
+              This app would like to access your photos to let you select a profile picture.
+            </Text>
+            
+            <View style={styles.permissionActions}>
+              <TouchableOpacity 
+                style={[styles.permissionButton, styles.denyButton]}
+                onPress={() => setShowWebPermission(false)}
+              >
+                <Text style={styles.denyButtonText}>Don&apos;t Allow</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.permissionButton, styles.allowButton]}
+                onPress={() => {
+                  setShowWebPermission(false);
+                  // Small delay to let modal close
+                  setTimeout(() => {
+                    fileRef.current?.click();
+                  }, 100);
+                }}
+              >
+                <Text style={styles.allowButtonText}>Allow</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ErrorBoundaryContainer>
   );
 }
@@ -586,5 +630,70 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
     fontSize: 13,
     textAlign: 'center'
+  },
+  webPermissionModal: {
+    backgroundColor: Colors.light.background,
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8
+  },
+  permissionIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: `${Colors.light.tint}15`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16
+  },
+  permissionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.light.text,
+    marginBottom: 8,
+    textAlign: 'center'
+  },
+  permissionMessage: {
+    fontSize: 14,
+    color: Colors.light.tabIconDefault,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24
+  },
+  permissionActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%'
+  },
+  permissionButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+  denyButton: {
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#d1d5db'
+  },
+  allowButton: {
+    backgroundColor: Colors.light.tint
+  },
+  denyButtonText: {
+    color: '#374151',
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  allowButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600'
   }
 });
