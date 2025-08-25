@@ -37,12 +37,13 @@
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
+      "output": "static"
     },
     "plugins": [
       [
         "expo-router",
         {
-          "origin": "https://rork.com/"
+          "origin": "https://beer-app.pages.dev"
         }
       ],
       [
