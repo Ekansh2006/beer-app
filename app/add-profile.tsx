@@ -211,6 +211,46 @@ export default function AddProfileScreen() {
     }
   }, [requestPermissions]);
 
+  const handlePhotoBoxPress = useCallback(async () => {
+    if (Platform.OS === 'web') {
+      setShowWebPermission(true);
+    } else {
+      // Direct library access on native with permission handling
+      const ok = await requestPermissions('library');
+      if (!ok) return;
+      try {
+        setState({ step: 'picking', message: 'Opening gallery...' });
+        const result = await ImagePicker.launchImageLibraryAsync({ 
+          allowsEditing: true, 
+          aspect: [1, 1], 
+          quality: 0.85, 
+          mediaTypes: ImagePicker.MediaTypeOptions.Images 
+        });
+        if (result.canceled) { 
+          setState({ step: 'idle' }); 
+          return; 
+        }
+        const asset = result.assets?.[0];
+        if (!asset?.uri) { 
+          setState({ step: 'error', message: 'No image selected' }); 
+          return; 
+        }
+        setPhotoPreview(asset.uri);
+        setErrors((e) => ({ ...e, photo: undefined }));
+        setState({ step: 'uploading', message: 'Uploading photo...' });
+        try {
+          const url = await uploadImageToCloudinary(asset.uri);
+          setPhotoUrl(url);
+          setState({ step: 'idle', message: 'Photo uploaded' });
+        } catch (err: any) {
+          setState({ step: 'error', message: err?.message ?? 'Image upload failed' });
+        }
+      } catch (e: any) {
+        setState({ step: 'error', message: e?.message ?? 'Image picker failed' });
+      }
+    }
+  }, [requestPermissions]);
+
   const onSubmit = useCallback(() => {
     // Check if user is logged in
     if (!user?.id) { 
@@ -303,13 +343,7 @@ export default function AddProfileScreen() {
         <Pressable
           style={styles.photoBox}
           testID="photo-box"
-          onPress={() => {
-            if (Platform.OS === 'web') {
-              setShowWebPermission(true);
-            } else {
-              setShowImagePicker(true);
-            }
-          }}
+          onPress={handlePhotoBoxPress}
         >
           {photoPreview ? (
             <Image source={{ uri: photoPreview }} style={styles.photo} contentFit="cover" />
@@ -317,9 +351,6 @@ export default function AddProfileScreen() {
             <View style={styles.photoPlaceholder}>
               <ImageIcon size={48} color={Colors.light.tabIconDefault} />
               <Text style={styles.placeholderText}>Tap to add a photo</Text>
-              <View style={styles.photoActionsRow}>
-                <Text style={styles.orText}>or</Text>
-              </View>
             </View>
           )}
         </Pressable>
