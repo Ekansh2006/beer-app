@@ -48,59 +48,47 @@ export function transformCloudinaryUrl(url: string, opts: CloudinaryTransformOpt
   }
 }
 
-// Updated function that works on web and native and accepts multiple input types
-export const uploadImageToCloudinary = async (input: string | File | Blob): Promise<string> => {
+// Updated function that works on both web and native
+export const uploadImageToCloudinary = async (imageUri: string) => {
   const formData = new FormData();
-
-  const appendBlob = (blob: Blob, name: string) => {
-    formData.append('file', blob, name);
-  };
-
-  if (typeof input === 'string') {
-    if (input.startsWith('data:')) {
-      const resp = await fetch(input);
-      const blob = await resp.blob();
-      appendBlob(blob, 'photo.jpg');
-    } else {
-      formData.append('file', {
-        uri: input,
-        type: 'image/jpeg',
-        name: 'photo.jpg',
-      } as any);
-    }
-  } else if (typeof File !== 'undefined' && input instanceof File) {
-    appendBlob(input, input.name || 'photo.jpg');
-  } else if (input instanceof Blob) {
-    appendBlob(input, 'photo.jpg');
+  
+  // Handle both data URLs (web) and file URIs (native)
+  if (imageUri.startsWith('data:')) {
+    // Web: Convert data URL to blob
+    const response = await fetch(imageUri);
+    const blob = await response.blob();
+    formData.append('file', blob, 'photo.jpg');
   } else {
-    throw new Error('Unsupported image input');
+    // Native: Use the existing format
+    formData.append('file', {
+      uri: imageUri,
+      type: 'image/jpeg',
+      name: 'photo.jpg'
+    } as any);
   }
-
+  
   formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
 
-  const resp = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/image/upload`, {
-    method: 'POST',
-    body: formData,
-  });
+  try {
+    const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/image/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    
+    const data = await response.json();
+    const url: string | undefined = data?.secure_url;
+    if (!url) throw new Error('No URL returned');
 
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => '');
-    throw new Error(`Upload failed (${resp.status}). ${errText}`.trim());
+    return transformCloudinaryUrl(url, {
+      quality: 'auto',
+      format: 'auto',
+      progressive: true,
+      crop: 'fill',
+      gravity: 'auto',
+      width: 1080,
+      dpr: 'auto',
+    });
+  } catch (e) {
+    throw new Error('Image upload failed');
   }
-
-  const data: any = await resp.json();
-  const url: string | undefined = data?.secure_url;
-  if (!url) {
-    throw new Error('Upload succeeded but no secure_url returned');
-  }
-
-  return transformCloudinaryUrl(url, {
-    quality: 'auto',
-    format: 'auto',
-    progressive: true,
-    crop: 'fill',
-    gravity: 'auto',
-    width: 1080,
-    dpr: 'auto',
-  });
 };

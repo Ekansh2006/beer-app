@@ -1,10 +1,10 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator, ScrollView, Pressable, Modal, Linking } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Alert, ActivityIndicator, ScrollView } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useUser } from '@/contexts/UserContext';
 import Colors from '@/constants/colors';
-import { Camera, ImageIcon, UploadCloud, CheckCircle2, AlertCircle, ChevronLeft, X } from 'lucide-react-native';
+import { Camera, ImageIcon, UploadCloud, CheckCircle2, AlertCircle, ChevronLeft } from 'lucide-react-native';
 import { router, Stack } from 'expo-router';
 import FormInput from '@/components/FormInput';
 import { uploadImageToCloudinary } from '@/lib/cloudinary';
@@ -69,11 +69,8 @@ export default function AddProfileScreen() {
   const [form, setForm] = useState<FormState>({ name: '', age: '', city: '', description: '' });
   const [errors, setErrors] = useState<FormErrors>({});
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [state, setState] = useState<UploadState>({ step: 'idle' });
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const [showImagePicker, setShowImagePicker] = useState<boolean>(false);
-  const [showWebPermission, setShowWebPermission] = useState<boolean>(false);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -128,126 +125,81 @@ export default function AddProfileScreen() {
     }
     
     // Photo validation
-    if (!photoUrl) {
+    if (!imageBase64) {
       next.photo = 'Profile photo is required';
     }
     
     setErrors(next);
     return Object.keys(next).length === 0;
-  }, [form, photoUrl]);
+  }, [form, imageBase64]);
 
   const onChange = useCallback((key: keyof FormState, value: string) => {
     setForm((p) => ({ ...p, [key]: value }));
     if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }));
   }, [errors]);
 
-  const requestPermissions = useCallback(async (type: 'camera' | 'library') => {
+  const requestPermissions = useCallback(async () => {
     if (Platform.OS !== 'web') {
-      if (type === 'camera') {
-        const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) {
-          Alert.alert(
-            'Camera Permission Required',
-            'Please allow camera access to take photos.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Open Settings', onPress: () => Linking.openSettings() }
-            ]
-          );
-          return false;
-        }
-      } else {
-        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) {
-          Alert.alert(
-            'Photo Library Permission Required',
-            'Please allow photo library access to select images.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Open Settings', onPress: () => Linking.openSettings() }
-            ]
-          );
-          return false;
-        }
+      const cam = await ImagePicker.requestCameraPermissionsAsync();
+      const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (cam.status !== 'granted' || lib.status !== 'granted') {
+        Alert.alert('Permissions needed', 'Please allow camera and photos access.');
+        return false;
       }
     }
     return true;
   }, []);
 
   const handlePick = useCallback(async (source: 'camera' | 'library') => {
-    setShowImagePicker(false);
-    const ok = await requestPermissions(source);
+    const ok = await requestPermissions();
     if (!ok) return;
     try {
       setState({ step: 'picking', message: 'Opening...' });
       const picker = source === 'camera' ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-      const result = await picker({ 
-        allowsEditing: true, 
-        aspect: [1, 1], 
-        quality: 0.85, 
-        mediaTypes: ImagePicker.MediaTypeOptions.Images 
-      });
-      if (result.canceled) { 
-        setState({ step: 'idle' }); 
-        return; 
-      }
+      const result = await picker({ allowsEditing: true, aspect: [1, 1], quality: 0.85, base64: true, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      if (result.canceled) { setState({ step: 'idle' }); return; }
       const asset = result.assets?.[0];
-      if (!asset?.uri) { 
-        setState({ step: 'error', message: 'No image selected' }); 
-        return; 
+      if (!asset) { setState({ step: 'error', message: 'No image selected' }); return; }
+      setPhotoPreview(asset.uri ?? null);
+      const b64 = asset.base64 ?? null;
+      if (!b64) { setState({ step: 'error', message: 'Failed to read image data' }); return; }
+      setState({ step: 'validating', message: 'Validating photo...' });
+      
+      // Calculate actual file size
+      const approxBytes = Math.ceil((b64.length * 3) / 4);
+      if (approxBytes > MAX_SIZE_BYTES) {
+        setState({ step: 'error', message: 'Image too large. Maximum size is 1MB.' });
+        return;
       }
-      setPhotoPreview(asset.uri);
-      setErrors((e) => ({ ...e, photo: undefined }));
-      setState({ step: 'uploading', message: 'Uploading photo...' });
+      
+      // Check minimum size
+      if (approxBytes < 1000) {
+        setState({ step: 'error', message: 'Image too small. Please upload a valid photo.' });
+        return;
+      }
+      
+      // Basic format validation
       try {
-        const url = await uploadImageToCloudinary(asset.uri);
-        setPhotoUrl(url);
-        setState({ step: 'idle', message: 'Photo uploaded' });
-      } catch (err: any) {
-        setState({ step: 'error', message: err?.message ?? 'Image upload failed' });
+        const buffer = Buffer.from(b64, 'base64');
+        const jpegHeader = buffer.subarray(0, 3);
+        const pngHeader = buffer.subarray(0, 8);
+        
+        const isJPEG = jpegHeader[0] === 0xFF && jpegHeader[1] === 0xD8 && jpegHeader[2] === 0xFF;
+        const isPNG = pngHeader[0] === 0x89 && pngHeader[1] === 0x50 && pngHeader[2] === 0x4E && pngHeader[3] === 0x47;
+        
+        if (!isJPEG && !isPNG) {
+          setState({ step: 'error', message: 'Invalid image format. Only JPEG and PNG are supported.' });
+          return;
+        }
+      } catch {
+        setState({ step: 'error', message: 'Invalid image data. Please try another photo.' });
+        return;
       }
+      setImageBase64(b64);
+      setErrors((e) => ({ ...e, photo: undefined }));
+      setState({ step: 'idle' });
     } catch (e: any) {
       setState({ step: 'error', message: e?.message ?? 'Image picker failed' });
-    }
-  }, [requestPermissions]);
-
-  const handlePhotoBoxPress = useCallback(async () => {
-    if (Platform.OS === 'web') {
-      setShowWebPermission(true);
-    } else {
-      // Direct library access on native with permission handling
-      const ok = await requestPermissions('library');
-      if (!ok) return;
-      try {
-        setState({ step: 'picking', message: 'Opening gallery...' });
-        const result = await ImagePicker.launchImageLibraryAsync({ 
-          allowsEditing: true, 
-          aspect: [1, 1], 
-          quality: 0.85, 
-          mediaTypes: ImagePicker.MediaTypeOptions.Images 
-        });
-        if (result.canceled) { 
-          setState({ step: 'idle' }); 
-          return; 
-        }
-        const asset = result.assets?.[0];
-        if (!asset?.uri) { 
-          setState({ step: 'error', message: 'No image selected' }); 
-          return; 
-        }
-        setPhotoPreview(asset.uri);
-        setErrors((e) => ({ ...e, photo: undefined }));
-        setState({ step: 'uploading', message: 'Uploading photo...' });
-        try {
-          const url = await uploadImageToCloudinary(asset.uri);
-          setPhotoUrl(url);
-          setState({ step: 'idle', message: 'Photo uploaded' });
-        } catch (err: any) {
-          setState({ step: 'error', message: err?.message ?? 'Image upload failed' });
-        }
-      } catch (e: any) {
-        setState({ step: 'error', message: e?.message ?? 'Image picker failed' });
-      }
     }
   }, [requestPermissions]);
 
@@ -271,8 +223,8 @@ export default function AddProfileScreen() {
     // Validate form
     if (!validate()) return;
     
-    // Double-check photo URL
-    if (!photoUrl) { 
+    // Double-check image
+    if (!imageBase64) { 
       setErrors((e) => ({ ...e, photo: 'Profile photo is required' })); 
       return; 
     }
@@ -284,19 +236,21 @@ export default function AddProfileScreen() {
       age: Number(form.age.trim()),
       city: form.city.trim().replace(/\s+/g, ' '),
       description: form.description?.trim().replace(/\s+/g, ' ') || '',
-      profileImageUrl: photoUrl,
+      imageBase64,
     };
     
     (async () => {
       try {
         setIsSubmitting(true);
         setState({ step: 'uploading', message: 'Creating profile...' });
+        const dataUrl = `data:image/jpeg;base64,${sanitizedData.imageBase64}`;
+        const imageUrl = await uploadImageToCloudinary(dataUrl);
         await addDoc(collection(db, 'profiles'), {
           name: sanitizedData.name,
           age: sanitizedData.age,
           city: sanitizedData.city,
           description: sanitizedData.description,
-          profileImageUrl: sanitizedData.profileImageUrl,
+          profileImageUrl: imageUrl,
           uploaderUserId: sanitizedData.userId,
           uploaderUsername: user.username ?? '',
           greenFlags: 0,
@@ -315,7 +269,7 @@ export default function AddProfileScreen() {
         setIsSubmitting(false);
       }
     })();
-  }, [user, validate, photoUrl, form]);
+  }, [user, validate, imageBase64, form]);
 
   const disabled = useMemo(() => state.step === 'picking' || isSubmitting, [state.step, isSubmitting]);
 
@@ -340,48 +294,26 @@ export default function AddProfileScreen() {
           </View>
         )}
 
-        <Pressable
-          style={styles.photoBox}
-          testID="photo-box"
-          onPress={handlePhotoBoxPress}
-        >
+        <View style={styles.photoBox} testID="photo-box">
           {photoPreview ? (
             <Image source={{ uri: photoPreview }} style={styles.photo} contentFit="cover" />
           ) : (
             <View style={styles.photoPlaceholder}>
               <ImageIcon size={48} color={Colors.light.tabIconDefault} />
-              <Text style={styles.placeholderText}>Tap to add a photo</Text>
+              <Text style={styles.placeholderText}>No photo selected</Text>
+              <View style={styles.photoActionsRow}>
+                <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('camera')} disabled={disabled} testID="pick-camera">
+                  <Camera color="#fff" size={18} />
+                  <Text style={styles.buttonText}>Camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('library')} disabled={disabled} testID="pick-library">
+                  <ImageIcon color="#fff" size={18} />
+                  <Text style={styles.buttonText}>Library</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
-        </Pressable>
-        {Platform.OS === 'web' ? (
-          // eslint-disable-next-line react/no-unknown-property
-          React.createElement('input', {
-            ref: fileRef as unknown as React.RefObject<HTMLInputElement>,
-            type: 'file',
-            accept: 'image/*',
-            style: { display: 'none' },
-            onChange: async (e: any) => {
-              try {
-                const fileList: FileList | null = e?.target?.files ?? null;
-                const f: File | undefined = fileList && fileList.length > 0 ? fileList[0] : undefined;
-                if (!f) return;
-                setPhotoPreview(URL.createObjectURL(f));
-                setState({ step: 'uploading', message: 'Uploading photo...' });
-                const url = await uploadImageToCloudinary(f);
-                setPhotoUrl(url);
-                setErrors((prev) => ({ ...prev, photo: undefined }));
-                setState({ step: 'idle', message: 'Photo uploaded' });
-              } catch (err: any) {
-                setState({ step: 'error', message: err?.message ?? 'Failed to upload image' });
-              } finally {
-                if (e?.target) {
-                  e.target.value = '';
-                }
-              }
-            }
-          } as any)
-        ) : null}
+        </View>
         {errors.photo ? <Text style={styles.errorText}>{errors.photo}</Text> : null}
 
         <View style={styles.form}>
@@ -470,122 +402,6 @@ export default function AddProfileScreen() {
           )}
         </View>
       </ScrollView>
-
-      {/* Image Picker Modal for Mobile */}
-      <Modal
-        visible={showImagePicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowImagePicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Photo</Text>
-              <TouchableOpacity 
-                onPress={() => setShowImagePicker(false)}
-                style={styles.closeButton}
-              >
-                <X size={24} color={Colors.light.text} />
-              </TouchableOpacity>
-            </View>
-            
-            <Text style={styles.modalSubtitle}>Choose how you&apos;d like to add your photo</Text>
-            
-            <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.cameraButton]} 
-                onPress={() => handlePick('camera')}
-                disabled={disabled}
-              >
-                <Camera color="#fff" size={24} />
-                <Text style={styles.modalButtonText}>Take Photo</Text>
-                <Text style={styles.modalButtonSubtext}>Use camera to take a new photo</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.libraryButton]} 
-                onPress={() => handlePick('library')}
-                disabled={disabled}
-              >
-                <ImageIcon color="#fff" size={24} />
-                <Text style={styles.modalButtonText}>Choose from Library</Text>
-                <Text style={styles.modalButtonSubtext}>Select from your photo library</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Web Permission Modal */}
-      <Modal
-        visible={showWebPermission}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowWebPermission(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.webPermissionModal}>
-            <View style={styles.permissionIcon}>
-              <ImageIcon size={32} color={Colors.light.tint} />
-            </View>
-            
-            <Text style={styles.permissionTitle}>Photo Library Access</Text>
-            <Text style={styles.permissionMessage}>
-              This app would like to access your photos to let you select a profile picture.
-            </Text>
-
-            <TouchableOpacity
-              onPress={() => {
-                try {
-                  const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '') || '';
-                  let url = 'about:blank';
-                  if (ua.includes('Edg')) {
-                    url = 'edge://settings/content';
-                  } else if (ua.includes('Chrome')) {
-                    url = 'chrome://settings/content';
-                  } else if (ua.includes('Firefox')) {
-                    url = 'about:preferences#privacy';
-                  } else if (ua.includes('Safari')) {
-                    url = 'https://support.apple.com/guide/safari/manage-website-settings-ibrw7c9f72ad/mac';
-                  } else {
-                    url = 'https://support.google.com/chrome/answer/114662?hl=en';
-                  }
-                  Linking.openURL(url);
-                } catch (e) {}
-              }}
-              style={{ marginBottom: 8 }}
-              testID="web-open-settings"
-            >
-              <Text style={{ color: Colors.light.tint, fontSize: 13 }}>Open browser permissions</Text>
-            </TouchableOpacity>
-            
-            <View style={styles.permissionActions}>
-              <TouchableOpacity 
-                style={[styles.permissionButton, styles.denyButton]}
-                onPress={() => setShowWebPermission(false)}
-                testID="web-permission-deny"
-              >
-                <Text style={styles.denyButtonText}>Don&apos;t Allow</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.permissionButton, styles.allowButton]}
-                onPress={() => {
-                  setShowWebPermission(false);
-                  // Small delay to let modal close
-                  setTimeout(() => {
-                    fileRef.current?.click();
-                  }, 100);
-                }}
-                testID="web-permission-allow"
-              >
-                <Text style={styles.allowButtonText}>Allow</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ErrorBoundaryContainer>
   );
 }
@@ -633,133 +449,4 @@ const styles = StyleSheet.create({
     color: '#92400e', 
     lineHeight: 18 
   },
-  orText: {
-    fontSize: 12,
-    color: Colors.light.tabIconDefault,
-    fontWeight: '500'
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end'
-  },
-  modalContent: {
-    backgroundColor: Colors.light.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 20,
-    paddingBottom: 40,
-    paddingHorizontal: 20
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.light.text
-  },
-  closeButton: {
-    padding: 4
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: Colors.light.tabIconDefault,
-    marginBottom: 24
-  },
-  modalActions: {
-    gap: 12
-  },
-  modalButton: {
-    padding: 20,
-    borderRadius: 16,
-    alignItems: 'center',
-    gap: 8
-  },
-  cameraButton: {
-    backgroundColor: Colors.light.tint
-  },
-  libraryButton: {
-    backgroundColor: '#0f172a'
-  },
-  modalButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600'
-  },
-  modalButtonSubtext: {
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 13,
-    textAlign: 'center'
-  },
-  webPermissionModal: {
-    backgroundColor: Colors.light.background,
-    borderRadius: 16,
-    padding: 24,
-    marginHorizontal: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
-    maxWidth: 480,
-    alignSelf: 'center'
-  },
-  permissionIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: `${Colors.light.tint}15`,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16
-  },
-  permissionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.light.text,
-    marginBottom: 8,
-    textAlign: 'center'
-  },
-  permissionMessage: {
-    fontSize: 14,
-    color: Colors.light.tabIconDefault,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 24
-  },
-  permissionActions: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%'
-  },
-  permissionButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center'
-  },
-  denyButton: {
-    backgroundColor: '#f3f4f6',
-    borderWidth: 1,
-    borderColor: '#d1d5db'
-  },
-  allowButton: {
-    backgroundColor: Colors.light.tint
-  },
-  denyButtonText: {
-    color: '#374151',
-    fontSize: 16,
-    fontWeight: '500'
-  },
-  allowButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600'
-  }
 });
