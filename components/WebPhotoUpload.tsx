@@ -4,6 +4,12 @@ import { Image } from 'expo-image';
 import { Camera, ImageIcon, CheckCircle2, AlertCircle, RotateCcw } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 
+// Detect if we're on a mobile device
+const isMobileDevice = () => {
+  if (typeof window === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
+
 interface WebPhotoUploadProps {
   onImageSelected: (base64: string, uri: string) => void;
   onError: (error: string) => void;
@@ -145,19 +151,89 @@ export default function WebPhotoUpload({
     setState({ step: 'picking', message: 'Opening camera...' });
     
     if (Platform.OS === 'web') {
-      // Create a hidden file input for camera access
-      if (!cameraInputRef.current) {
+      try {
+        // Remove existing input if it exists
+        if (cameraInputRef.current) {
+          if (document.body.contains(cameraInputRef.current)) {
+            document.body.removeChild(cameraInputRef.current);
+          }
+          cameraInputRef.current = null;
+        }
+        
+        // Create a fresh file input for camera access
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
-        input.capture = 'environment'; // Use rear camera by default
+        
+        // Use different capture attributes based on device type
+        if (isMobileDevice()) {
+          input.setAttribute('capture', 'environment');
+        }
+        
         input.style.display = 'none';
-        input.addEventListener('change', handleFileSelect);
+        input.style.position = 'absolute';
+        input.style.left = '-9999px';
+        input.style.top = '-9999px';
+        input.style.width = '1px';
+        input.style.height = '1px';
+        input.style.opacity = '0';
+        
+        const handleChange = (e: Event) => {
+          handleFileSelect(e);
+          // Clean up after use
+          setTimeout(() => {
+            if (input && document.body.contains(input)) {
+              document.body.removeChild(input);
+            }
+          }, 1000);
+        };
+        
+        input.addEventListener('change', handleChange);
+        
+        // Handle cancel/escape
+        const handleCancel = () => {
+          setState({ step: 'idle' });
+          setTimeout(() => {
+            if (input && document.body.contains(input)) {
+              document.body.removeChild(input);
+            }
+          }, 1000);
+        };
+        
+        input.addEventListener('cancel', handleCancel);
+        
+        // Add focus/blur handlers for better mobile support
+        input.addEventListener('focus', () => {
+          console.log('Camera input focused');
+        });
+        
+        input.addEventListener('blur', () => {
+          console.log('Camera input blurred');
+          // If no file was selected after blur, consider it cancelled
+          setTimeout(() => {
+            if (!input.files || input.files.length === 0) {
+              handleCancel();
+            }
+          }, 500);
+        });
+        
         document.body.appendChild(input);
         cameraInputRef.current = input;
+        
+        // For mobile devices, we need to trigger the click in a user gesture context
+        // Use requestAnimationFrame to ensure the DOM is ready
+        requestAnimationFrame(() => {
+          if (cameraInputRef.current) {
+            console.log('Triggering camera input click');
+            cameraInputRef.current.focus();
+            cameraInputRef.current.click();
+          }
+        });
+        
+      } catch (error) {
+        console.error('Error opening camera:', error);
+        setState({ step: 'error', message: 'Failed to open camera. Please try again.' });
       }
-      
-      cameraInputRef.current.click();
     }
   }, [disabled, handleFileSelect]);
 
@@ -167,19 +243,80 @@ export default function WebPhotoUpload({
     setState({ step: 'picking', message: 'Opening gallery...' });
     
     if (Platform.OS === 'web') {
-      // Create a hidden file input for gallery access
-      if (!fileInputRef.current) {
+      try {
+        // Remove existing input if it exists
+        if (fileInputRef.current) {
+          if (document.body.contains(fileInputRef.current)) {
+            document.body.removeChild(fileInputRef.current);
+          }
+          fileInputRef.current = null;
+        }
+        
+        // Create a fresh file input for gallery access
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
         input.multiple = false;
+        
+        // Don't use capture attribute for gallery access
         input.style.display = 'none';
-        input.addEventListener('change', handleFileSelect);
+        input.style.position = 'absolute';
+        input.style.left = '-9999px';
+        input.style.top = '-9999px';
+        input.style.width = '1px';
+        input.style.height = '1px';
+        input.style.opacity = '0';
+        
+        const handleChange = (e: Event) => {
+          handleFileSelect(e);
+          // Clean up after use
+          setTimeout(() => {
+            if (input && document.body.contains(input)) {
+              document.body.removeChild(input);
+            }
+          }, 1000);
+        };
+        
+        input.addEventListener('change', handleChange);
+        
+        // Handle cancel/escape
+        const handleCancel = () => {
+          setState({ step: 'idle' });
+          setTimeout(() => {
+            if (input && document.body.contains(input)) {
+              document.body.removeChild(input);
+            }
+          }, 1000);
+        };
+        
+        input.addEventListener('cancel', handleCancel);
+        
+        // Add focus/blur handlers for better mobile support
+        input.addEventListener('blur', () => {
+          // If no file was selected after blur, consider it cancelled
+          setTimeout(() => {
+            if (!input.files || input.files.length === 0) {
+              handleCancel();
+            }
+          }, 500);
+        });
+        
         document.body.appendChild(input);
         fileInputRef.current = input;
+        
+        // Use requestAnimationFrame to ensure the DOM is ready
+        requestAnimationFrame(() => {
+          if (fileInputRef.current) {
+            console.log('Triggering gallery input click');
+            fileInputRef.current.focus();
+            fileInputRef.current.click();
+          }
+        });
+        
+      } catch (error) {
+        console.error('Error opening gallery:', error);
+        setState({ step: 'error', message: 'Failed to open gallery. Please try again.' });
       }
-      
-      fileInputRef.current.click();
     }
   }, [disabled, handleFileSelect]);
 
@@ -192,11 +329,15 @@ export default function WebPhotoUpload({
   // Cleanup function
   useEffect(() => {
     return () => {
-      if (fileInputRef.current) {
-        document.body.removeChild(fileInputRef.current);
-      }
-      if (cameraInputRef.current) {
-        document.body.removeChild(cameraInputRef.current);
+      try {
+        if (fileInputRef.current && document.body.contains(fileInputRef.current)) {
+          document.body.removeChild(fileInputRef.current);
+        }
+        if (cameraInputRef.current && document.body.contains(cameraInputRef.current)) {
+          document.body.removeChild(cameraInputRef.current);
+        }
+      } catch (error) {
+        console.warn('Error cleaning up file inputs:', error);
       }
     };
   }, []);
@@ -276,14 +417,24 @@ export default function WebPhotoUpload({
 
       {/* Web-specific instructions */}
       {Platform.OS === 'web' && (
-        <Text style={styles.webHint}>
-          📱 On mobile: Camera button opens camera, Gallery opens photos
-          {Platform.OS === 'web' && window.location.protocol !== 'https:' && (
+        <View style={styles.webHintContainer}>
+          <Text style={styles.webHint}>
+            📱 On mobile: Camera button opens camera, Gallery opens photos
+          </Text>
+          {typeof window !== 'undefined' && window.location.protocol !== 'https:' && (
             <Text style={styles.httpsWarning}>
               ⚠️ Camera access requires HTTPS in production
             </Text>
           )}
-        </Text>
+          {isMobileDevice() && (
+            <Text style={styles.webHint}>
+              📸 Mobile detected: Camera access optimized for your device
+            </Text>
+          )}
+          <Text style={styles.webHint}>
+            💡 If camera doesn&apos;t open, try refreshing the page or check browser permissions
+          </Text>
+        </View>
       )}
     </View>
   );
@@ -381,15 +532,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  webHint: {
+  webHintContainer: {
     marginTop: 12,
+    gap: 4,
+  },
+  webHint: {
     fontSize: 12,
     color: Colors.light.tabIconDefault,
     textAlign: 'center',
     lineHeight: 16,
   },
   httpsWarning: {
+    fontSize: 12,
     color: '#f59e0b',
     fontWeight: '600',
+    textAlign: 'center',
   },
 });

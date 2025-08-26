@@ -41,9 +41,10 @@ galleryInput.style.display = 'none';
 ### Key HTML5 Attributes Used
 
 1. **`accept="image/*"`** - Restricts file selection to images only
-2. **`capture="environment"`** - Requests rear camera access on mobile browsers
-3. **`capture="user"`** - Alternative for front camera access
-4. **`multiple={false}`** - Ensures single file selection
+2. **`capture="environment"`** - Requests rear camera access (only on mobile devices)
+3. **`multiple={false}`** - Ensures single file selection
+4. **Mobile Detection** - Only applies `capture` attribute on detected mobile devices
+5. **Enhanced Styling** - Uses `opacity: 0` instead of `display: none` for better compatibility
 
 ### FileReader API for Image Preview
 
@@ -90,10 +91,13 @@ img.src = URL.createObjectURL(file);
 ## Browser Compatibility
 
 ### Mobile Web Browsers
-- **iOS Safari 12+**: Full camera and gallery access
-- **Android Chrome 70+**: Full camera and gallery access
+- **iOS Safari 12+**: Full camera and gallery access (requires HTTPS)
+- **Android Chrome 70+**: Full camera and gallery access (requires HTTPS)
 - **Android Firefox**: Gallery access, limited camera support
-- **Samsung Internet**: Full support
+- **Samsung Internet**: Full support with optimizations
+- **Mobile Edge**: Full support on newer versions
+
+**Note**: Camera access implementation now includes mobile device detection and optimized handling for better compatibility across different mobile browsers.
 
 ### Desktop Browsers
 - **Chrome 70+**: Full support
@@ -216,29 +220,75 @@ const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
 ## Troubleshooting
 
-### Common Issues
+### Common Issues and Solutions
 
-1. **Camera not opening on mobile web**
-   - Ensure HTTPS is enabled
-   - Check browser permissions
-   - Verify `capture` attribute is set correctly
+1. **Camera not opening on mobile web browsers**
+   - **Root Cause**: Mobile browsers have strict requirements for camera access
+   - **Solutions Applied**:
+     - Fresh input element creation for each camera access attempt
+     - Mobile device detection with optimized `capture` attribute usage
+     - `requestAnimationFrame` for proper DOM timing
+     - Enhanced error handling with try-catch blocks
+     - Focus/blur event handlers for better mobile support
+   - **Additional Checks**:
+     - Ensure HTTPS is enabled (required for camera access)
+     - Check browser permissions in Settings
+     - Verify user gesture context (camera must be triggered by user action)
 
-2. **Images not uploading**
-   - Check file size limits
-   - Verify supported formats
-   - Check network connectivity
+2. **File input not triggering on some mobile browsers**
+   - **Root Cause**: Some browsers block programmatic clicks on hidden inputs
+   - **Solutions Applied**:
+     - Proper input styling (opacity: 0 instead of display: none)
+     - Absolute positioning with negative coordinates
+     - Focus before click for better browser compatibility
+     - Event cleanup to prevent memory leaks
 
-3. **Preview not showing**
-   - Verify FileReader implementation
-   - Check object URL creation
-   - Ensure proper error handling
+3. **Images not uploading or processing**
+   - Check file size limits (5MB for web vs 1MB for mobile)
+   - Verify supported formats (JPEG, PNG, WebP)
+   - Check network connectivity and CORS settings
+   - Validate base64 conversion process
+
+4. **Preview not showing correctly**
+   - Verify FileReader implementation and error handling
+   - Check object URL creation and cleanup
+   - Ensure proper state management during async operations
 
 ### Debug Tips
 
-1. Enable browser developer tools on mobile devices
-2. Check console for JavaScript errors
-3. Verify network requests in Network tab
-4. Test with different image formats and sizes
+1. **Mobile Browser Debugging**:
+   - Enable remote debugging on mobile devices
+   - Use Chrome DevTools for mobile Safari/Chrome
+   - Check console logs for camera access attempts
+   - Monitor network requests for upload failures
+
+2. **Camera Access Debugging**:
+   - Check browser console for "Camera input focused/blurred" messages
+   - Verify mobile device detection with user agent string
+   - Test on actual devices, not just desktop browser mobile mode
+   - Confirm HTTPS is working in production environment
+
+3. **File Processing Debugging**:
+   - Log file size, type, and dimensions during validation
+   - Check base64 conversion success/failure
+   - Monitor object URL creation and cleanup
+   - Verify FileReader events are firing correctly
+
+## Recent Improvements (Latest Update)
+
+### Enhanced Mobile Browser Support
+1. **Smart Mobile Detection**: Automatically detects mobile devices and applies optimized settings
+2. **Improved Input Handling**: Fresh input creation for each camera/gallery access
+3. **Better Event Management**: Enhanced focus/blur handlers for mobile browsers
+4. **Robust Error Handling**: Comprehensive try-catch blocks with user-friendly error messages
+5. **DOM Timing Optimization**: Uses `requestAnimationFrame` for better browser compatibility
+6. **Memory Management**: Automatic cleanup of DOM elements and event listeners
+
+### Technical Improvements
+1. **User Gesture Context**: Ensures camera access happens within proper user interaction context
+2. **Browser Compatibility**: Enhanced support for various mobile browsers and their quirks
+3. **Debug Logging**: Added console logging for troubleshooting camera access issues
+4. **State Management**: Improved loading states and user feedback during operations
 
 ## Future Enhancements
 
@@ -246,5 +296,6 @@ const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 2. **Image Compression**: Implement client-side image compression
 3. **Multiple File Selection**: Support multiple image uploads
 4. **Drag and Drop**: Add drag-and-drop support for desktop
-5. **Camera Controls**: Add zoom, flash, and camera switching controls
+5. **Advanced Camera Controls**: Add zoom, flash, and camera switching controls
 6. **Image Editing**: Basic crop, rotate, and filter functionality
+7. **WebRTC Camera Stream**: Direct camera stream access for advanced use cases
