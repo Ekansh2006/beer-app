@@ -156,26 +156,39 @@ export default function AddProfileScreen() {
                     <Text style={styles.placeholderText}>Tap to add photo</Text>
                   </div>
                   <input
-                    id="photo-upload"
-                    type="file"
-                    style={{ display: 'none' }}
-                    accept="image/jpeg,image/png"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      setPhotoPreview(URL.createObjectURL(file));
-                      setState({ step: 'uploading', message: 'Uploading...' });
-                      try {
-                        const finalUrl = await uploadImageToCloudinary(file);
-                        setProfileImageUrl(finalUrl);
-                        setErrors((prev) => ({ ...prev, photo: undefined }));
-                        setState({ step: 'idle' });
-                      } catch (err: any) {
-                        setState({ step: 'error', message: err?.message || 'Upload failed' });
-                        setPhotoPreview(null);
-                      }
-                    }}
-                  />
+  id="photo-upload"
+  type="file"
+  // This new style makes the input invisible but still interactive
+  style={{
+    position: 'absolute',
+    width: '1px',
+    height: '1px',
+    padding: 0,
+    margin: -1,
+    overflow: 'hidden',
+    clip: 'rect(0, 0, 0, 0)',
+    borderWidth: 0,
+  }}
+  accept="image/jpeg,image/png"
+  onChange={async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPhotoPreview(URL.createObjectURL(file));
+    setState({ step: 'uploading', message: 'Uploading...' });
+    
+    try {
+      const finalUrl = await uploadImageToCloudinary(file);
+      setProfileImageUrl(finalUrl);
+      setErrors((prev) => ({ ...prev, photo: undefined }));
+      setState({ step: 'idle' });
+    } catch (err: any) {
+      setState({ step: 'error', message: err?.message || 'Upload failed' });
+      setPhotoPreview(null);
+    }
+  }}
+/>
+
                 </label>
               )}
             </>
