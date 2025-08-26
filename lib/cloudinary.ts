@@ -1,6 +1,6 @@
 export const CLOUDINARY_CONFIG = {
   cloudName: 'df4tx4erp',
-  uploadPreset: 'beer_app_unsigned', // Use your new unsigned preset name
+  uploadPreset: 'beer_app_unsigned', // Your unsigned preset
   apiKey: '736319717389867'
 };
 
@@ -20,7 +20,7 @@ export function transformCloudinaryUrl(url: string, opts: CloudinaryTransformOpt
     if (!url || typeof url !== 'string') return url;
     const isCloudinary = url.includes('res.cloudinary.com') || url.includes('cloudinary.com');
     if (!isCloudinary) return url;
-
+    
     const u = new URL(url);
     const parts = u.pathname.split('/');
     const uploadIndex = parts.findIndex((p) => p === 'upload');
@@ -37,7 +37,7 @@ export function transformCloudinaryUrl(url: string, opts: CloudinaryTransformOpt
     if (opts.width) tx.push(`w_${opts.width}`);
     if (opts.height) tx.push(`h_${opts.height}`);
     if (opts.dpr) tx.push(`dpr_${opts.dpr}`);
-
+    
     const txString = tx.join(',');
     const before = parts.slice(0, uploadIndex + 1).join('/');
     const after = parts.slice(uploadIndex + 1).join('/');
@@ -48,23 +48,26 @@ export function transformCloudinaryUrl(url: string, opts: CloudinaryTransformOpt
   }
 }
 
-// Updated function that works on both web and native
-export const uploadImageToCloudinary = async (imageUri: string) => {
+/**
+ * Uploads an image to Cloudinary.
+ * Works for both native (file URI string) and web (File object).
+ * @param {string | File} imageUriOrFile - The native file URI or the web File object.
+ * @returns {Promise<string>} The secure URL of the uploaded image.
+ */
+export const uploadImageToCloudinary = async (imageUriOrFile: string | File): Promise<string> => {
   const formData = new FormData();
-  
-  // Handle both data URLs (web) and file URIs (native)
-  if (imageUri.startsWith('data:')) {
-    // Web: Convert data URL to blob
-    const response = await fetch(imageUri);
-    const blob = await response.blob();
-    formData.append('file', blob, 'photo.jpg');
-  } else {
-    // Native: Use the existing format
+
+  // Handle the file input based on its type
+  if (typeof imageUriOrFile === 'string') {
+    // NATIVE: The input is a file URI string from Expo Image Picker
     formData.append('file', {
-      uri: imageUri,
-      type: 'image/jpeg',
-      name: 'photo.jpg'
+      uri: imageUriOrFile,
+      type: 'image/jpeg', // Assume jpeg for simplicity
+      name: 'photo.jpg',
     } as any);
+  } else {
+    // WEB: The input is a File object from the <input type="file">
+    formData.append('file', imageUriOrFile);
   }
   
   formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
@@ -76,8 +79,13 @@ export const uploadImageToCloudinary = async (imageUri: string) => {
     });
     
     const data = await response.json();
-    const url: string | undefined = data?.secure_url;
-    if (!url) throw new Error('No URL returned');
+
+    if (!response.ok || !data.secure_url) {
+      // Provide a more detailed error message from Cloudinary if available
+      throw new Error(data?.error?.message || 'Image upload failed. No URL returned.');
+    }
+    
+    const url: string = data.secure_url;
 
     return transformCloudinaryUrl(url, {
       quality: 'auto',
@@ -88,7 +96,9 @@ export const uploadImageToCloudinary = async (imageUri: string) => {
       width: 1080,
       dpr: 'auto',
     });
-  } catch (e) {
-    throw new Error('Image upload failed');
+  } catch (e: any) {
+    console.error("Cloudinary Upload Error:", e);
+    // Re-throw the error so the UI component can catch it and show a message
+    throw new Error(e.message || 'Image upload failed. Please try again.');
   }
 };
