@@ -7,6 +7,7 @@ import Colors from '@/constants/colors';
 import { Camera, ImageIcon, UploadCloud, CheckCircle2, AlertCircle, ChevronLeft } from 'lucide-react-native';
 import { router, Stack } from 'expo-router';
 import FormInput from '@/components/FormInput';
+import WebPhotoUpload from '@/components/WebPhotoUpload';
 import { uploadImageToCloudinary } from '@/lib/cloudinary';
 import { db } from '@/lib/firebase';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
@@ -294,26 +295,41 @@ export default function AddProfileScreen() {
           </View>
         )}
 
-        <View style={styles.photoBox} testID="photo-box">
-          {photoPreview ? (
-            <Image source={{ uri: photoPreview }} style={styles.photo} contentFit="cover" />
-          ) : (
-            <View style={styles.photoPlaceholder}>
-              <ImageIcon size={48} color={Colors.light.tabIconDefault} />
-              <Text style={styles.placeholderText}>No photo selected</Text>
-              <View style={styles.photoActionsRow}>
-                <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('camera')} disabled={disabled} testID="pick-camera">
-                  <Camera color="#fff" size={18} />
-                  <Text style={styles.buttonText}>Camera</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('library')} disabled={disabled} testID="pick-library">
-                  <ImageIcon color="#fff" size={18} />
-                  <Text style={styles.buttonText}>Library</Text>
-                </TouchableOpacity>
+        {Platform.OS === 'web' ? (
+          <WebPhotoUpload
+            onImageSelected={(base64, uri) => {
+              setImageBase64(base64);
+              setPhotoPreview(uri);
+              setErrors((e) => ({ ...e, photo: undefined }));
+            }}
+            onError={(error) => {
+              setErrors((e) => ({ ...e, photo: error }));
+            }}
+            disabled={disabled}
+            currentImage={photoPreview}
+          />
+        ) : (
+          <View style={styles.photoBox} testID="photo-box">
+            {photoPreview ? (
+              <Image source={{ uri: photoPreview }} style={styles.photo} contentFit="cover" />
+            ) : (
+              <View style={styles.photoPlaceholder}>
+                <ImageIcon size={48} color={Colors.light.tabIconDefault} />
+                <Text style={styles.placeholderText}>No photo selected</Text>
+                <View style={styles.photoActionsRow}>
+                  <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('camera')} disabled={disabled} testID="pick-camera">
+                    <Camera color="#fff" size={18} />
+                    <Text style={styles.buttonText}>Camera</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.button, styles.secondaryBtn]} onPress={() => handlePick('library')} disabled={disabled} testID="pick-library">
+                    <ImageIcon color="#fff" size={18} />
+                    <Text style={styles.buttonText}>Library</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        )}
         {errors.photo ? <Text style={styles.errorText}>{errors.photo}</Text> : null}
 
         <View style={styles.form}>

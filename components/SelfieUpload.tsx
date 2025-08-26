@@ -1,11 +1,13 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { useUser } from '@/contexts/UserContext';
 import Colors from '@/constants/colors';
 import { Camera, UploadCloud, CheckCircle2, AlertCircle } from 'lucide-react-native';
 import { uploadImageToCloudinary } from '@/lib/cloudinary';
 import { db } from '@/lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
+import WebPhotoUpload from './WebPhotoUpload';
+import * as ImagePicker from 'expo-image-picker';
 
 interface UploadState {
   step: 'idle' | 'picking' | 'validating' | 'uploading' | 'success' | 'error';
@@ -23,10 +25,15 @@ export default function SelfieUpload() {
 
 
   const pickImage = useCallback(async () => {
+    if (Platform.OS === 'web') {
+      // Web photo upload is handled by WebPhotoUpload component
+      return;
+    }
+
     try {
       setState({ step: 'picking', message: 'Opening camera...' });
 
-      const result = await (await import('expo-image-picker')).launchCameraAsync({
+      const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -81,6 +88,16 @@ export default function SelfieUpload() {
     }
   }, [user?.id, imageBase64]);
 
+  const handleWebImageSelected = useCallback((base64: string, uri: string) => {
+    setImageBase64(base64);
+    setPreviewUri(uri);
+    setState({ step: 'idle' });
+  }, []);
+
+  const handleWebError = useCallback((error: string) => {
+    setState({ step: 'error', message: error });
+  }, []);
+
   const buttonDisabled = useMemo(() => state.step === 'picking' || state.step === 'uploading', [state.step]);
 
   return (
@@ -89,28 +106,41 @@ export default function SelfieUpload() {
       <Text style={styles.subtitle}>Take a clear selfie with good lighting. Face only, no sunglasses.
       </Text>
 
-      <View style={styles.previewBox} testID="selfie-preview">
-        {previewUri ? (
-          <Image source={{ uri: previewUri }} style={styles.previewImage} resizeMode="cover" />
-        ) : (
-          <View style={styles.previewPlaceholder}>
-            <Camera size={48} color={Colors.light.tabIconDefault} />
-            <Text style={styles.placeholderText}>No selfie yet</Text>
-          </View>
-        )}
-      </View>
+      {Platform.OS === 'web' ? (
+        <WebPhotoUpload
+          onImageSelected={handleWebImageSelected}
+          onError={handleWebError}
+          disabled={buttonDisabled}
+          currentImage={previewUri}
+        />
+      ) : (
+        <View style={styles.previewBox} testID="selfie-preview">
+          {previewUri ? (
+            <Image source={{ uri: previewUri }} style={styles.previewImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.previewPlaceholder}>
+              <Camera size={48} color={Colors.light.tabIconDefault} />
+              <Text style={styles.placeholderText}>No selfie yet</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {Platform.OS !== 'web' && (
+        <View style={styles.actions}>
+          <TouchableOpacity
+            testID="btn-take-selfie"
+            style={[styles.button, styles.secondaryBtn, buttonDisabled && styles.disabledBtn]}
+            onPress={pickImage}
+            disabled={buttonDisabled}
+          >
+            <Camera color="#fff" size={20} />
+            <Text style={styles.buttonText}>Take Selfie</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <View style={styles.actions}>
-        <TouchableOpacity
-          testID="btn-take-selfie"
-          style={[styles.button, styles.secondaryBtn, buttonDisabled && styles.disabledBtn]}
-          onPress={pickImage}
-          disabled={buttonDisabled}
-        >
-          <Camera color="#fff" size={20} />
-          <Text style={styles.buttonText}>Take Selfie</Text>
-        </TouchableOpacity>
-
         <TouchableOpacity
           testID="btn-upload-selfie"
           style={[styles.button, styles.primaryBtn, (!imageBase64 || buttonDisabled) && styles.disabledBtn]}
@@ -144,7 +174,10 @@ export default function SelfieUpload() {
       </View>
 
       <Text style={styles.hint}>
-        Requirements: square, max 800x800, under 1MB. We automatically optimize during upload.
+        {Platform.OS === 'web' 
+          ? 'Requirements: max 5MB, JPEG/PNG/WebP format. Camera access requires HTTPS in production.'
+          : 'Requirements: square, max 800x800, under 1MB. We automatically optimize during upload.'
+        }
       </Text>
     </View>
   );
