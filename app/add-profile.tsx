@@ -99,51 +99,34 @@ export default function AddProfileScreen() {
             <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
                 <Text style={styles.title}>Create Profile</Text>
                 <Text style={styles.subtitle}>Share basic info and a clear photo.</Text>
-                
-                <View style={styles.photoBox} testID="photo-box">
-                    {photoPreview ? (
-                        <Image source={{ uri: photoPreview }} style={styles.photo} contentFit="cover" />
-                    ) : (
-                        <label htmlFor="photo-upload" style={styles.webLabel as any}>
-                            <div style={styles.photoPlaceholder as any}>
-                                <ImageIcon size={48} color={Colors.light.tabIconDefault} />
-                                <Text style={styles.placeholderText}>Tap to add photo</Text>
-                            </div>
-                            <input
-                                id="photo-upload"
-                                type="file"
-                                style={{
-                                    position: 'absolute',
-                                    width: '1px',
-                                    height: '1px',
-                                    padding: 0,
-                                    margin: -1,
-                                    overflow: 'hidden',
-                                    clip: 'rect(0, 0, 0, 0)',
-                                    borderWidth: 0,
-                                }}
-                                accept="image/jpeg,image/png"
-                                onChange={async (e) => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
+                <div style={{ marginBottom: 20 }}>
+  <label htmlFor="photo-upload">
+    <button type="button" style={{ padding: '12px 24px', fontSize: 16 }}>Choose Image</button>
+  </label>
+  <input
+    id="photo-upload"
+    type="file"
+    accept="image/*"
+    style={{
+      position: 'absolute',
+      left: '-9999px',
+      width: '1px',
+      height: '1px',
+      opacity: 0,
+      pointerEvents: 'none'
+    }}
+    onChange={async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setPhotoPreview(URL.createObjectURL(file));
+      // place your upload logic here (e.g. call uploadImageToCloudinary)
+    }}
+  />
+  {photoPreview &&
+    <img src={photoPreview} alt="preview" style={{ marginTop: 12, width: 150, borderRadius: 8 }} />
+  }
+</div>
 
-                                    setPhotoPreview(URL.createObjectURL(file));
-                                    setState({ step: 'uploading', message: 'Uploading...' });
-
-                                    try {
-                                        const finalUrl = await uploadImageToCloudinary(file);
-                                        setProfileImageUrl(finalUrl);
-                                        setErrors((prev) => ({ ...prev, photo: undefined }));
-                                        setState({ step: 'idle' });
-                                    } catch (err: any) {
-                                        setState({ step: 'error', message: err?.message || 'Upload failed' });
-                                        setPhotoPreview(null);
-                                    }
-                                }}
-                            />
-                        </label>
-                    )}
-                </View>
                 {errors.photo && <Text style={styles.errorText}>{errors.photo}</Text>}
 
                 <View style={styles.form}>
